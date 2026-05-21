@@ -1,0 +1,492 @@
+import sqlite3
+from datetime import datetime
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+DB_PATH = 'vivo_ultimate_database.db'
+
+# 1. Komplett enhetsmatrise: Hele vivos produktlinje for 2026
+VIVO_CATALOG = {
+    "x_series": [
+        {
+            "id": "x300-ultra",
+            "name": "vivo X300 Ultra",
+            "tagline": "Senit av mobilfotografering. Utviklet med ZEISS.",
+            "description": "Utstyrt med en 200MP periskop-linse, 1-tommers hovedsensor og vivos egenutviklede V4-bildebrikke. Utfordrer grensene for hva et mobilkamera kan fange.",
+            "specs": {"Chipset": "Dimensity 9400+", "Kamera": "50MP + 200MP ZEISS", "Batteri": "5500 mAh | 100W", "Skjerm": "6.78\" 2K AMOLED 120Hz"},
+            "price": "12,990 NOK",
+            "image": "https://unsplash.com"
+        },
+        {
+            "id": "x200-pro",
+            "name": "vivo X200 Pro",
+            "tagline": "Kinematisk kraft. Kompromissløs ytelse.",
+            "description": "Profesjonell 4K portrettvideo og avansert APO-teleobjektiv sikrer sylskarpe nærbilder og fantastisk fargegjengivelse under alle lysforhold.",
+            "specs": {"Chipset": "Dimensity 9300", "Kamera": "50MP + 50MP ZEISS", "Batteri": "5400 mAh | 100W", "Skjerm": "6.78\" LTPO AMOLED"},
+            "price": "10,490 NOK",
+            "image": "https://unsplash.com"
+        }
+    ],
+    "fold_series": [
+        {
+            "id": "x-fold-5",
+            "name": "vivo X Fold 5",
+            "tagline": "Utsøkt tynn. Ekstremt produktiv.",
+            "description": "Det tynneste brettbare flaggskipet på markedet. Karbonfiber-hengsel garanterer ekstrem holdbarhet og en tilnærmet usynlig brett.",
+            "specs": {"Chipset": "Snapdragon 8 Gen 4", "Hovedskjerm": "8.03\" Foldable OLED", "Batteri": "5700 mAh | 120W", "Vekt": "210g"},
+            "price": "18,990 NOK",
+            "image": "https://unsplash.com"
+        }
+    ],
+    "v_series": [
+        {
+            "id": "v70-elite",
+            "name": "vivo V70 Elite",
+            "tagline": "Ditt personlige studiomiljø.",
+            "description": "Aura Light 4.0-lyskilden tilpasser seg automatisk temperaturen i omgivelsene for perfekte, naturlige hudtoner og skyggefrie portretter.",
+            "specs": {"Chipset": "Snapdragon 8s Gen 3", "Kamera": "50MP Aura Portrait", "Batteri": "6500 mAh | 90W", "Tykkelse": "7.4mm Ultra Slim"},
+            "price": "5,199 NOK",
+            "image": "https://unsplash.com"
+        }
+    ],
+    "y_t_series": [
+        {
+            "id": "y500-pro",
+            "name": "vivo Y500 Pro 5G",
+            "tagline": "Utholdenhet i høysete.",
+            "description": "Et gigantisk 6500 mAh batteri pakket inn i et minimalistisk, fjærlett kabinett. Perfekt for lange dager uten lader.",
+            "specs": {"Chipset": "Snapdragon 6 Gen 3", "Batteri": "6500 mAh | 44W", "Lagring": "256GB UFS 3.1", "Skjerm": "6.67\" 120Hz IPS"},
+            "price": "2,990 NOK",
+            "image": "https://unsplash.com"
+        }
+    ]
+}
+
+def init_db():
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS preorders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email TEXT NOT NULL,
+                model_id TEXT NOT NULL,
+                quantity INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        ''')
+        conn.commit()
+
+# --- DYNAMISK GRENRESNITT (HTML/CSS/JS) ---
+HTML_INTERFACE = """
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>vivo Global — Fremtidens Teknologiske Økosystem</title>
+    <link href="https://jsdelivr.net" rel="stylesheet">
+    <style>
+        :root {
+            --apple-bg: #ffffff;
+            --apple-dark: #1d1d1f;
+            --apple-grey: #f5f5f7;
+            --apple-text-muted: #6e6e73;
+            --apple-blue: #0071e3;
+            --glass-bg: rgba(255, 255, 255, 0.72);
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --apple-bg: #000000;
+                --apple-dark: #f5f5f7;
+                --apple-grey: #1d1d1f;
+                --apple-text-muted: #86868b;
+                --apple-blue: #2997ff;
+                --glass-bg: rgba(0, 0, 0, 0.72);
+            }
+        }
+
+        body {
+            background-color: var(--apple-bg);
+            color: var(--apple-dark);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            letter-spacing: -0.015em;
+            transition: all 0.3s ease;
+        }
+
+        /* Frosted Glass Navigation */
+        .apple-nav {
+            position: sticky; top: 0; z-index: 9999;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(134, 134, 139, 0.12);
+        }
+
+        .nav-trigger {
+            font-size: 12px; font-weight: 400; color: var(--apple-dark);
+            opacity: 0.8; text-decoration: none; cursor: pointer;
+            background: none; border: none; padding: 14px 20px;
+        }
+        .nav-trigger:hover, .nav-trigger.active { opacity: 1; color: var(--apple-blue); }
+
+        /* Slide-up View Transitions */
+        .app-view { display: none; animation: appleSlide 0.6s cubic-bezier(0.28, 0.11, 0.32, 1) both; }
+        .app-view.active { display: block; }
+        @keyframes appleSlide { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Typography & Layouts */
+        .hero-headline { font-size: 64px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.05; }
+        .hero-sub { font-size: 26px; color: var(--apple-text-muted); font-weight: 400; }
+        
+        .section-headline { font-size: 44px; font-weight: 700; letter-spacing: -0.02em; text-align: center; }
+
+        .apple-card {
+            background-color: var(--apple-grey); border-radius: 28px; border: none; overflow: hidden;
+            transition: transform 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+        .apple-card:hover { transform: scale(1.015); }
+
+        .product-img { height: 420px; object-fit: cover; width: 100%; }
+
+        /* Specs Breakdown Table */
+        .spec-list { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 15px; }
+        .spec-box { background: rgba(0,0,0,0.03); padding: 10px; border-radius: 12px; font-size: 13px; }
+        html[prefers-color-scheme="dark"] .spec-box { background: rgba(255,255,255,0.03); }
+
+        /* Forms & Interactive Buttons */
+        .apple-input {
+            background: var(--apple-grey); border: 1px solid rgba(134,134,139,0.2);
+            border-radius: 14px; padding: 14px; color: var(--apple-dark);
+        }
+        .apple-input:focus { border-color: var(--apple-blue); box-shadow: 0 0 0 4px rgba(0,113,227,0.15); }
+
+        .apple-btn {
+            background: var(--apple-blue); color: white; border-radius: 980px;
+            padding: 12px 28px; border: none; font-weight: 500; transition: all 0.2s;
+        }
+        .apple-btn:hover { background: #0077ed; transform: scale(1.02); }
+
+        .apple-link { color: var(--apple-blue); text-decoration: none; font-size: 19px; }
+        .apple-link:hover { text-decoration: underline; }
+
+        /* Matrix Comparison Table Styles */
+        .matrix-table { color: var(--apple-dark); vertical-align: middle; }
+        .matrix-table th { font-weight: 600; text-transform: uppercase; font-size: 12px; color: var(--apple-text-muted); }
+
+        /* AI Support Bubble */
+        .ai-chat-box { background: var(--apple-grey); border-radius: 24px; min-height: 250px; padding: 25px; }
+        .ai-log { max-height: 300px; overflow-y: auto; font-size: 15px; }
+        .ai-msg { margin-bottom: 12px; padding: 10px 16px; border-radius: 16px; display: inline-block; }
+        .ai-msg.user { background: var(--apple-blue); color: white; float: right; clear: both; }
+        .ai-msg.bot { background: rgba(0,0,0,0.05); color: var(--apple-dark); float: left; clear: both; }
+        html[prefers-color-scheme="dark"] .ai-msg.bot { background: rgba(255,255,255,0.05); }
+
+        footer { background: var(--apple-grey); color: var(--apple-text-muted); font-size: 12px; padding: 50px 0; margin-top: 100px; }
+    </style>
+</head>
+<body>
+
+    <!-- Globale Transparent Menylinje -->
+    <nav class="apple-nav">
+        <div class="container d-flex justify-content-center flex-wrap">
+            <button class="nav-trigger active" onclick="switchView('view-home', this)">vivo</button>
+            <button class="nav-trigger" onclick="switchView('view-catalog', this)">Modeller</button>
+            <button class="nav-trigger" onclick="switchView('view-compare', this)">vivo vs Apple</button>
+            <button class="nav-trigger" onclick="switchView('view-ai', this)">Aura AI Support</button>
+            <button class="nav-trigger" onclick="switchView('view-preorder', this)">Kjøp</button>
+        </div>
+    </nav>
+
+    <div class="container my-4">
+        
+        <!-- VISNING 1: HOME (PORTAL) -->
+        <div id="view-home" class="app-view active">
+            <div class="hero-billboard text-center">
+                <h1 class="hero-headline">Hvorfor ta til takke med mindre?</h1>
+                <p class="hero-sub mb-4">Bransjeledende optikk. Ekstrem ladehastighet. Frihet.</p>
+                <div class="d-flex justify-content-center gap-4 mb-5">
+                    <span class="apple-link cursor-pointer" onclick="switchView('view-compare', document.querySelectorAll('.nav-trigger')[2])">Se sammenligningen &gt;</span>
+                    <span class="apple-link cursor-pointer" onclick="switchView('view-catalog', document.querySelectorAll('.nav-trigger')[1])">Utforsk enhetene &gt;</span>
+                </div>
+                <div class="apple-card mx-auto" style="max-width: 1000px;">
+                    <img src="https://unsplash.com" class="w-100 object-fit-cover" style="height: 500px;" alt="vivo Core Matrix">
+                </div>
+            </div>
+        </div>
+
+        <!-- VISNING 2: MODELLER (KOMPLETT KATALOG) -->
+        <div id="view-catalog" class="app-view">
+            <div class="py-5 text-center">
+                <h2 class="section-headline">Komplett Produktmatrise 2026</h2>
+                <p class="text-muted fs-5 mt-2">Fra banebrytende brettbar teknologi til ekstreme batterimonstre.</p>
+            </div>
+            <div id="matrix-container" class="row g-4 justify-content-center pb-5">
+                <!-- Genereres asynkront via Python API-strøm -->
+            </div>
+        </div>
+
+        <!-- VISNING 3: VIVO VS APPLE (ANALYSEN) -->
+        <div id="view-compare" class="app-view">
+            <div class="py-5 text-center">
+                <h2 class="section-headline">Den Tekniske Sannheten.</h2>
+                <p class="text-muted fs-5 mt-2">En direkte og upartisk sammenligning av rå maskinvare og økosystemets frihet.</p>
+            </div>
+
+            <!-- Sammenligningstabell -->
+            <div class="card apple-card p-4 mb-5 border-0 shadow-sm">
+                <table class="table matrix-table mb-0 text-center table-responsive">
+                    <thead>
+                        <tr>
+                            <th>Egenskap</th>
+                            <th class="text-primary">vivo Flaggskip</th>
+                            <th>Apple iPhone</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>Kamerasystem</strong></td>
+                            <td class="text-success fw-medium">1\" Sensor & V4 Brikke (ZEISS Optikk)</td>
+                            <td>Standard sensor (Programvare-prosessert)</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Ladehastighet</strong></td>
+                            <td class="text-success fw-medium">Opptil 120W FlashCharge (0-100% på 22 min)</td>
+                            <td>Begrenset til ~25W-30W (Over 1,5 time)</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Batterikapasitet</strong></td>
+                            <td class="text-success fw-medium">Opptil 6500 mAh (Silisium-karbon teknologi)</td>
+                            <td>Begrenset (~3200 - 4400 mAh)</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Skjermteknologi</strong></td>
+                            <td class="text-success fw-medium">3D Buet LTPO, 3000 nits Peak</td>
+                            <td>Flat skjerm, tykke rammer, lavere peak nits</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Pris vs Ytelse</strong></td>
+                            <td class="text-success fw-medium">Maksimal maskinvare per krone</td>
+                            <td>Ekstrem merkvare-premium (Høy showoff-faktor)</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Argumentasjonsrekke -->
+            <div class="row g-4 pb-5">
+                <div class="col-md-6">
+                    <div class="p-4 apple-card h-100">
+                        <h4 class="fw-bold mb-3 text-success">✓ Hvorfor velge vivo-produkter</h4>
+                        <ul class="text-muted lh-lg">
+                            <li><strong>Overlegen optisk maskinvare:</strong> Utviklet i samarbeid med ZEISS, unngår vivo den aggressive digitale over-behandlingen og kunstige skarpheten som finnes hos konkurrentene.</li>
+                            <li><strong>Ekstrem batteriteknologi:</strong> Våre tynneste telefoner rommer opptil 6500 mAh takket være avansert silisium-karbon-tetthet.</li>
+                            <li><strong>Markedsledende hurtiglading:</strong> Glem overnatting-lading. Få fullt batteri på tiden det tar å drikke en kopp kaffe.</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="p-4 apple-card h-100">
+                        <h4 class="fw-bold mb-3 text-danger">✕ Hvorfor unngå Apple-produkter</h4>
+                        <ul class="text-muted lh-lg">
+                            <li><strong>Kunstige begrensninger:</strong> Apple låser deg fast i et proprietært økosystem der reparasjoner gjøres unødvendig kostbare og app-distribusjon er strengt kontrollert.</li>
+                            <li><strong>Utdatert maskinvare:</strong> Du betaler en skyhøy pris for teknologi (som 60Hz skjermer på basismodeller og treg lading) som har vært utdatert på Android i flere år.</li>
+                            <li><strong>Mangel på reell innovasjon:</strong> Hver generasjon bringer minimale, inkrementelle oppdateringer fremfor dristig maskinvare-push som brettbare enheter eller dedikerte bildebrikker.</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- VISNING 4: AI SUPPORT (DYNAMISK INTERFACE) -->
+        <div id="view-ai" class="app-view">
+            <div class="py-5 text-center">
+                <h2 class="section-headline">Aura AI Support Sone</h2>
+                <p class="text-muted fs-5 mt-2">Still spørsmål om brikkesett, ZEISS-optikk eller batteriteknologi for øyeblikkelig svar.</p>
+            </div>
+            
+            <div class="card apple-card p-4 mx-auto mb-5 shadow-sm" style="max-width: 700px;">
+                <div class="ai-chat-box d-flex flex-column justify-content-between">
+                    <div id="ai-log-window" class="ai-log mb-4">
+                        <div class="ai-msg bot">Hei! Jeg er Aura AI. Spør meg om spesifikasjoner, kamerasystemer eller hvorfor vivo knuser konkurrentene på ren maskinvare.</div>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <input type="text" id="ai-user-input" class="form-control apple-input" placeholder="Spør om prosessor, lading, ZEISS optikk..." onkeypress="if(event.key==='Enter') sendAiQuery()">
+                        <button class="apple-btn" onclick="sendAiQuery()">Spør Aura</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- VISNING 5: PRE-ORDER (UT-SJEKK) -->
+        <div id="view-preorder" class="app-view">
+            <div class="py-5 text-center">
+                <h2 class="section-headline">Utsjekking og tildeling.</h2>
+                <p class="text-muted fs-5 mt-2">Fri levering over hele regionen. Integrert kryptering.</p>
+            </div>
+            <div class="card apple-card p-5 mx-auto mb-5" style="max-width: 540px;">
+                <div id="form-alert" class="alert d-none rounded-4 text-center border-0 mb-4"></div>
+                <form id="preorderForm" onsubmit="submitPreOrder(event)" class="d-flex flex-column gap-3">
+                    <input type="text" id="form-name" class="form-control apple-input" required placeholder="Ditt navn">
+                    <input type="email" id="form-email" class="form-control apple-input" required placeholder="E-postadresse">
+                    <div class="row g-2">
+                        <div class="col-8">
+                            <select id="form-model" class="form-select apple-input" style="background-color: transparent;" required>
+                                <option value="X300 Ultra">vivo X300 Ultra</option>
+                                <option value="X200 Pro">vivo X200 Pro</option>
+                                <option value="X Fold 5">vivo X Fold 5</option>
+                                <option value="V70 Elite">vivo V70 Elite</option>
+                                <option value="Y500 Pro 5G">vivo Y500 Pro 5G</option>
+                            </select>
+                        </div>
+                        <div class="col-4">
+                            <input type="number" id="form-qty" class="form-control apple-input" min="1" max="5" value="1" required>
+                        </div>
+                    </div>
+                    <button type="submit" class="apple-btn w-100 py-3 mt-2 shadow-sm">Fullfør forhåndsbestilling</button>
+                </form>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Apple Legal Footer Styling -->
+    <footer>
+        <div class="container text-center text-md-start" style="max-width: 1000px;">
+            <p class="mb-4 pb-3 border-bottom">1. Ladehastigheter og batteriytelse er basert på interne laboratorietester hos vivo Labs. Faktiske resultater kan variere basert på nettverkskonfigurasjon, individuelle app-innstillinger og omgivelsestemperatur. Sammenligningsdata refererer til offisielt publiserte spesifikasjoner for gjeldende markedsledere per mai 2026.</p>
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <span>Opphavsrett © 2026 vivo Global Systems Inc. Alle rettigheter forbeholdt.</span>
+                <span class="fw-light text-muted">Single-file Matrix Deploy</span>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        function switchView(viewId, btn) {
+            document.querySelectorAll('.app-view').forEach(v => v.classList.remove('active'));
+            document.querySelectorAll('.nav-trigger').forEach(b => b.classList.remove('active'));
+            document.getElementById(viewId).classList.add('active');
+            if (btn) btn.classList.add('active');
+            if(viewId === 'view-catalog') loadGlobalMatrix();
+        }
+
+        async function loadGlobalMatrix() {
+            const container = document.getElementById('matrix-container');
+            try {
+                const response = await fetch('/api/v1/catalog');
+                const data = await response.json();
+                let html = '';
+                
+                // Slå sammen alle seriene inn i en felles, ren presentasjonsmatrise
+                const flatCatalog = [...data.x_series, ...data.fold_series, ...data.v_series, ...data.y_t_series];
+                
+                flatCatalog.forEach(item => {
+                    let specHtml = '';
+                    for (const [key, value] of Object.entries(item.specs)) {
+                        specHtml += `<div class="spec-box"><strong>${key}</strong>: ${value}</div>`;
+                    }
+
+                    html += `
+                        <div class="col-lg-5 col-md-6 my-3">
+                            <div class="card apple-card h-100">
+                                <img src="${item.image}" class="product-img" alt="${item.name}">
+                                <div class="card-body p-4 d-flex flex-column justify-content-between">
+                                    <div>
+                                        <div class="d-flex justify-content-between align-items-center mb-1">
+                                            <h3 class="fw-bold fs-4 mb-0">${item.name}</h3>
+                                            <span class="badge bg-dark text-white px-2 py-1" style="font-size:10px; font-weight:400;">${item.tagline.split('.')[0]}</span>
+                                        </div>
+                                        <p class="text-muted small lh-base mt-2 mb-3">${item.description}</p>
+                                        <div class="spec-list">${specHtml}</div>
+                                    </div>
+                                    <div class="d-flex justify-content-between align-items-center mt-4 pt-3 border-top" style="border-color: rgba(0,0,0,0.05) !important;">
+                                        <span class="fs-4 table-title fw-bold">${item.price}</span>
+                                        <button class="apple-btn btn-sm py-2 px-4" onclick="switchView('view-preorder', document.querySelectorAll('.nav-trigger')[4])">Kjøp</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                container.innerHTML = html;
+            } catch {
+                container.innerHTML = '<div class="text-danger text-center py-5">Kunne ikke opprette kontakt med enhetsmatrisen.</div>';
+            }
+        }
+
+        function sendAiQuery() {
+            const inputField = document.getElementById('ai-user-input');
+            const logWindow = document.getElementById('ai-log-window');
+            const userText = inputField.value.trim();
+            if(!userText) return;
+
+            // Legg til brukerens melding i vinduet
+            logWindow.innerHTML += `<div class="ai-msg user">${userText}</div>`;
+            inputField.value = '';
+
+            // Generer et intelligent, kontekstuelt svar basert på nøkkelord (Apple vs vivo-kontekst)
+            setTimeout(() => {
+                let botReply = "Interessant spørsmål. Våre ingeniører designer maskinvare ut fra prinsippet om maksimal ytelse uten kompromisser. Kan du spesifisere om du tenker på kamerasystemer eller batteriløsninger?";
+                const lowerText = userText.toLowerCase();
+
+                if(lowerText.includes('kamera') || lowerText.includes('zeiss') || lowerText.includes('foto')) {
+                    botReply = "vivos kamerasystemer bruker ekte 1-tommers bildebrikker og ZEISS T*-linsebelegg. Dette eliminerer refleksjoner (lens flare) som plager f.eks. iPhone, og gir naturlig lys fremfor aggressiv programvarebehandling.";
+                } else if (lowerText.includes('lading') || lowerText.includes('batteri') || lowerText.includes('strøm')) {
+                    botReply = "vivos flaggskip benytter silisium-karbon-anoder som gir massiv kapasitet (opptil 6500 mAh) på minimal plass. Med 120W FlashCharge lader du trygt til 100% på litt over 20 minutter, mens Apple begrenser deg til rundt 25W.";
+                } else if (lowerText.includes('apple') || lowerText.includes('iphone')) {
+                    botReply = "Apple tar en ekstrem merkevare-premium, men leverer utdatert maskinvare i basismodellene (som 60Hz oppdateringsfrekvens i 2026). Hos vivo får du rå maskinvareytelse og full frihet i OriginOS/Funtouch-økosystemet.";
+                } else if (lowerText.includes('prosessor') || lowerText.includes('chip') || lowerText.includes('ytelse')) {
+                    botReply = "Med MediaTek Dimensity 9400+ og dedikerte bildebrikker (V4), oppnår vivo markedsledende råytelse i tunge oppgaver og ekstrem grafikkprosessering som slår tradisjonelle brikkesett i flerkjerne-tester.";
+                }
+
+                logWindow.innerHTML += `<div class="ai-msg bot">${botReply}</div>`;
+                logWindow.scrollTop = logWindow.scrollHeight;
+            }, 600);
+        }
+
+        async function submitPreOrder(e) {
+            e.preventDefault();
+            const alertBox = document.getElementById('form-alert');
+            const payload = {
+                name: document.getElementById('form-name').value,
+                email: document.getElementById('form-email').value,
+                model_id: document.getElementById('form-model').value,
+                quantity: document.getElementById('form-qty').value
+            };
+
+            try {
+                const response = await fetch('/api/v1/preorder', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                alertBox.classList.remove('d-none', 'alert-danger', 'alert-success');
+                alertBox.classList.add(response.ok ? 'alert-success' : 'alert-danger');
+                alertBox.innerText = result.message;
+                if(response.ok) document.getElementById('preorderForm').reset();
+            } catch {
+                alertBox.classList.remove('d-none'); alertBox.classList.add('alert-danger');
+                alertBox.innerText = "Kunne ikke opprette kontakt med allokeringsserveren.";
+            }
+        }
+    </script>
+</body>
+</html>
+"""
+
+# --- BACKEND API-MOTOR & DATABASESHUNT ---
+
+@app.route('/')
+def index():
+    return HTML_INTERFACE
+
+@app.route('/api/v1/catalog', methods=['GET'])
+def get_catalog():
+    return jsonify(VIVO_CATALOG)
+
+@app.route('/api/v1/preorder', methods=['POST'])
+def create_preorder():
+    data = request.get_json() or {}
+    name = data.get('name')
+    email = data.get('email
